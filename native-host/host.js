@@ -7,21 +7,46 @@
 
 const http = require('http');
 const url = require('url');
+const fs = require('fs');
+const path = require('path');
+
+// Create log file
+const logFile = path.join(__dirname, 'debug.log');
+const logStream = fs.createWriteStream(logFile, { flags: 'a' });
+
+function debugLog(msg) {
+  const timestamp = new Date().toISOString();
+  const line = `[${timestamp}] ${msg}\n`;
+  logStream.write(line);
+  console.error(msg); // Also to stderr
+}
+
+debugLog('=== Native Host Starting ===');
 
 // Native Messaging Protocol
-let port = null;
+// IMPORTANT: Configure stdin FIRST before any data arrives
 
-// Read message from stdin (from extension)
-function readMessage() {
-  const lengthBuffer = Buffer.alloc(4);
-  process.stdin.read(lengthBuffer);
-  const length = lengthBuffer.readUInt32LE(0);
-
-  const messageBuffer = Buffer.alloc(length);
-  process.stdin.read(messageBuffer);
-
-  return JSON.parse(messageBuffer.toString());
+// On Windows, stdin defaults to text mode which corrupts binary data
+// Set stdin to binary mode (critical for Native Messaging protocol)
+if (process.platform === 'win32') {
+  // Use setRawMode if available (not available in all environments)
+  try {
+    if (process.stdin.setRawMode) {
+      process.stdin.setRawMode(true);
+      debugLog('stdin set to raw mode');
+    }
+  } catch (e) {
+    debugLog('setRawMode not available: ' + e.message);
+  }
 }
+
+process.stdin.setEncoding(null);
+process.stdin.resume();
+
+debugLog('stdin configured and resumed');
+
+let inputBuffer = Buffer.alloc(0);
+let messageLength = null;
 
 // Send message to stdout (to extension)
 function sendMessage(message) {
@@ -29,6 +54,7 @@ function sendMessage(message) {
   const lengthBuffer = Buffer.alloc(4);
   lengthBuffer.writeUInt32LE(buffer.length, 0);
 
+  debugLog('[sendMessage] Sending to extension: ' + JSON.stringify(message).substring(0, 100));
   process.stdout.write(lengthBuffer);
   process.stdout.write(buffer);
 }
@@ -56,27 +82,69 @@ function broadcastSSE(eventType, data) {
 
 // Handle messages from extension
 process.stdin.on('readable', () => {
-  try {
-    const message = readMessage();
-
-    if (message.type === 'response' && message.id) {
-      // Store response for HTTP API
-      if (responseQueue[message.id]) {
-        responseQueue[message.id](message);
-        delete responseQueue[message.id];
-      }
-    } else if (message.type === 'event') {
-      // Broadcast event to SSE clients
-      broadcastSSE(message.eventType || 'message', message.data);
-      console.error(`[Event] ${message.eventType}:`, message.data);
-    } else if (message.type === 'log') {
-      // Log from extension
-      console.error('[Extension]', message.message);
-      // Also broadcast as SSE event
-      broadcastSSE('log', { message: message.message, timestamp: Date.now() });
+  debugLog('[stdin] readable event fired');
+  let chunk;
+  while ((chunk = process.stdin.read()) !== null) {
+    debugLog(`[stdin] received chunk, length: ${chunk ? chunk.length : 0}, inputBuffer before concat: ${inputBuffer.length}`);
+    // Ensure chunk is a Buffer
+    if (!Buffer.isBuffer(chunk)) {
+      chunk = Buffer.from(chunk);
     }
-  } catch (e) {
-    // End of stream or parse error
+    debugLog(`[stdin] chunk is Buffer: ${Buffer.isBuffer(chunk)}, chunk hex: ${chunk.toString('hex').substring(0, 50)}`);
+    inputBuffer = Buffer.concat([inputBuffer, chunk]);
+
+    // Process all complete messages in buffer
+    debugLog(`[stdin] processing buffer, length: ${inputBuffer.length}, messageLength: ${messageLength}`);
+    while (true) {
+      // Need at least 4 bytes for length
+      if (inputBuffer.length < 4) {
+        debugLog(`[stdin] buffer too small (${inputBuffer.length} < 4), waiting for more data`);
+        break;
+      }
+
+      // Read message length if not already read
+      if (messageLength === null) {
+        messageLength = inputBuffer.readUInt32LE(0);
+        debugLog(`[stdin] read message length: ${messageLength}`);
+      }
+
+      // Check if we have the complete message
+      if (inputBuffer.length < 4 + messageLength) {
+        debugLog(`[stdin] incomplete message (${inputBuffer.length} < ${4 + messageLength}), waiting for more data`);
+        break;
+      }
+
+      // Extract message
+      const messageBuffer = inputBuffer.slice(4, 4 + messageLength);
+      inputBuffer = inputBuffer.slice(4 + messageLength);
+      messageLength = null;
+
+      try {
+        const message = JSON.parse(messageBuffer.toString());
+        debugLog(`[stdin] parsed message: ${JSON.stringify(message).substring(0, 150)}`);
+
+        if (message.type === 'response' && message.id) {
+          // Store response for HTTP API
+          debugLog(`[stdin] got response for id ${message.id}, hasCallback: ${!!responseQueue[message.id]}`);
+          if (responseQueue[message.id]) {
+            responseQueue[message.id](message);
+            delete responseQueue[message.id];
+            debugLog(`[stdin] response callback executed for id ${message.id}`);
+          }
+        } else if (message.type === 'event') {
+          // Broadcast event to SSE clients
+          broadcastSSE(message.eventType || 'message', message.data);
+          console.error(`[Event] ${message.eventType}:`, message.data);
+        } else if (message.type === 'log') {
+          // Log from extension
+          console.error('[Extension]', message.message);
+          // Also broadcast as SSE event
+          broadcastSSE('log', { message: message.message, timestamp: Date.now() });
+        }
+      } catch (e) {
+        console.error('[Error] Failed to parse message:', e);
+      }
+    }
   }
 });
 
@@ -171,11 +239,27 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 9876;
+const PORT = process.env.PORT || 9999;
 server.listen(PORT, () => {
-  console.error(`Native host listening on http://localhost:${PORT}`);
-  console.error('Waiting for extension connection...');
+  debugLog(`Native host listening on http://localhost:${PORT}`);
+  debugLog('Waiting for extension connection...');
 });
 
-// Keep stdin open
-process.stdin.resume();
+// Handle process errors
+process.on('uncaughtException', (error) => {
+  console.error('[Fatal] Uncaught exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Fatal] Unhandled rejection:', reason);
+});
+
+// Handle stdin close
+process.stdin.on('end', () => {
+  console.error('[Info] stdin closed, exiting...');
+  process.exit(0);
+});
+
+process.stdin.on('error', (error) => {
+  console.error('[Error] stdin error:', error);
+});

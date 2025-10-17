@@ -158,14 +158,9 @@ async function navigateTab(url) {
 
   await chrome.tabs.update(tab.id, { url });
 
-  return new Promise((resolve) => {
-    chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
-      if (tabId === tab.id && info.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve({ success: true, url });
-      }
-    });
-  });
+  // Return immediately without waiting for page load
+  // (page load events will be sent separately)
+  return { success: true, url, tabId: tab.id };
 }
 
 // Take screenshot
@@ -192,8 +187,14 @@ async function getActiveTab() {
 
 // Send message to native host
 function sendToNativeHost(message) {
+  console.log('[sendToNativeHost] Sending:', message);
   if (nativePort && isConnected) {
-    nativePort.postMessage(message);
+    try {
+      nativePort.postMessage(message);
+      console.log('[sendToNativeHost] Message sent successfully');
+    } catch (error) {
+      console.error('[sendToNativeHost] Failed to send:', error);
+    }
   } else {
     console.error('Not connected to native host');
   }
@@ -208,38 +209,49 @@ function sendEvent(eventType, data) {
   });
 }
 
+// TEMPORARILY DISABLED - Event messages cause encoding issues with Chinese characters
+// TODO: Fix encoding issues before re-enabling
+
 // Listen for tab updates (page loads)
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete') {
-    sendEvent('page_load', {
-      tabId,
-      url: tab.url,
-      title: tab.title,
-      timestamp: Date.now()
-    });
-  }
-});
+// chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+//   if (changeInfo.status === 'complete') {
+//     sendEvent('page_load', {
+//       tabId,
+//       url: tab.url,
+//       title: tab.title,
+//       timestamp: Date.now()
+//     });
+//   }
+// });
 
 // Listen for tab activation
-chrome.tabs.onActivated.addListener(async (activeInfo) => {
-  const tab = await chrome.tabs.get(activeInfo.tabId);
-  sendEvent('tab_activated', {
-    tabId: activeInfo.tabId,
-    url: tab.url,
-    title: tab.title,
-    timestamp: Date.now()
-  });
-});
+// chrome.tabs.onActivated.addListener(async (activeInfo) => {
+//   const tab = await chrome.tabs.get(activeInfo.tabId);
+//   sendEvent('tab_activated', {
+//     tabId: activeInfo.tabId,
+//     url: tab.url,
+//     title: tab.title,
+//     timestamp: Date.now()
+//   });
+// });
 
 // Listen for navigation (before page load)
-chrome.webNavigation.onCommitted.addListener((details) => {
-  if (details.frameId === 0) { // Main frame only
-    sendEvent('navigation', {
-      tabId: details.tabId,
-      url: details.url,
-      transitionType: details.transitionType,
-      timestamp: Date.now()
-    });
+// chrome.webNavigation.onCommitted.addListener((details) => {
+//   if (details.frameId === 0) { // Main frame only
+//     sendEvent('navigation', {
+//       tabId: details.tabId,
+//       url: details.url,
+//       transitionType: details.transitionType,
+//       timestamp: Date.now()
+//     });
+//   }
+// });
+
+// Listen for messages from popup
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'checkStatus') {
+    sendResponse({ connected: isConnected });
+    return true;
   }
 });
 
