@@ -1,38 +1,52 @@
 /**
- * Background script - Communicates with Native Messaging Host
+ * Background script - Communicates with HTTP server (no Native Messaging)
  */
 
-const NATIVE_HOST_NAME = 'com.edge.ai.assistant';
-let nativePort = null;
+const HTTP_SERVER_URL = 'http://localhost:9999';
+let eventSource = null;
 let isConnected = false;
 
-// Connect to native host
-function connectNativeHost() {
-  console.log('Connecting to native host:', NATIVE_HOST_NAME);
+// Connect to HTTP server via SSE
+function connectToServer() {
+  console.log('Connecting to HTTP server:', HTTP_SERVER_URL);
 
-  nativePort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+  try {
+    eventSource = new EventSource(`${HTTP_SERVER_URL}/events`);
 
-  nativePort.onMessage.addListener((message) => {
-    console.log('Received from native host:', message);
-    handleNativeMessage(message);
-  });
+    eventSource.onopen = () => {
+      isConnected = true;
+      console.log('Connected to HTTP server');
+    };
 
-  nativePort.onDisconnect.addListener(() => {
-    console.error('Disconnected from native host');
-    console.error('Last error:', chrome.runtime.lastError);
-    isConnected = false;
-    nativePort = null;
+    eventSource.onmessage = (event) => {
+      console.log('Received message:', event.data);
+      try {
+        const message = JSON.parse(event.data);
+        handleServerMessage(message);
+      } catch (e) {
+        console.error('Failed to parse message:', e);
+      }
+    };
 
-    // Retry connection after 5 seconds
-    setTimeout(connectNativeHost, 5000);
-  });
+    eventSource.onerror = (error) => {
+      console.error('SSE error:', error);
+      isConnected = false;
 
-  isConnected = true;
-  console.log('Connected to native host');
+      if (eventSource) {
+        eventSource.close();
+      }
+
+      // Retry connection after 5 seconds
+      setTimeout(connectToServer, 5000);
+    };
+  } catch (error) {
+    console.error('Failed to connect:', error);
+    setTimeout(connectToServer, 5000);
+  }
 }
 
-// Handle messages from native host
-async function handleNativeMessage(message) {
+// Handle messages from HTTP server
+async function handleServerMessage(message) {
   const { id, action, params } = message;
 
   try {
@@ -75,19 +89,27 @@ async function handleNativeMessage(message) {
         throw new Error(`Unknown action: ${action}`);
     }
 
-    sendToNativeHost({
-      type: 'response',
-      id,
-      success: true,
-      result
-    });
+    // Send response back via HTTP POST
+    await sendResponse(id, { success: true, result });
   } catch (error) {
-    sendToNativeHost({
-      type: 'response',
-      id,
-      success: false,
-      error: error.message
+    await sendResponse(id, { success: false, error: error.message });
+  }
+}
+
+// Send response back to server
+async function sendResponse(id, data) {
+  try {
+    const response = await fetch(`${HTTP_SERVER_URL}/response`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...data })
     });
+
+    if (!response.ok) {
+      console.error('Failed to send response:', response.statusText);
+    }
+  } catch (error) {
+    console.error('Failed to send response:', error);
   }
 }
 
@@ -158,8 +180,6 @@ async function navigateTab(url) {
 
   await chrome.tabs.update(tab.id, { url });
 
-  // Return immediately without waiting for page load
-  // (page load events will be sent separately)
   return { success: true, url, tabId: tab.id };
 }
 
@@ -185,68 +205,6 @@ async function getActiveTab() {
   };
 }
 
-// Send message to native host
-function sendToNativeHost(message) {
-  console.log('[sendToNativeHost] Sending:', message);
-  if (nativePort && isConnected) {
-    try {
-      nativePort.postMessage(message);
-      console.log('[sendToNativeHost] Message sent successfully');
-    } catch (error) {
-      console.error('[sendToNativeHost] Failed to send:', error);
-    }
-  } else {
-    console.error('Not connected to native host');
-  }
-}
-
-// Send event to native host
-function sendEvent(eventType, data) {
-  sendToNativeHost({
-    type: 'event',
-    eventType,
-    data
-  });
-}
-
-// TEMPORARILY DISABLED - Event messages cause encoding issues with Chinese characters
-// TODO: Fix encoding issues before re-enabling
-
-// Listen for tab updates (page loads)
-// chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-//   if (changeInfo.status === 'complete') {
-//     sendEvent('page_load', {
-//       tabId,
-//       url: tab.url,
-//       title: tab.title,
-//       timestamp: Date.now()
-//     });
-//   }
-// });
-
-// Listen for tab activation
-// chrome.tabs.onActivated.addListener(async (activeInfo) => {
-//   const tab = await chrome.tabs.get(activeInfo.tabId);
-//   sendEvent('tab_activated', {
-//     tabId: activeInfo.tabId,
-//     url: tab.url,
-//     title: tab.title,
-//     timestamp: Date.now()
-//   });
-// });
-
-// Listen for navigation (before page load)
-// chrome.webNavigation.onCommitted.addListener((details) => {
-//   if (details.frameId === 0) { // Main frame only
-//     sendEvent('navigation', {
-//       tabId: details.tabId,
-//       url: details.url,
-//       transitionType: details.transitionType,
-//       timestamp: Date.now()
-//     });
-//   }
-// });
-
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'checkStatus') {
@@ -256,7 +214,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 // Initialize
-connectNativeHost();
+connectToServer();
 
 // Log when extension loaded
-console.log('Edge AI Assistant loaded');
+console.log('Edge AI Assistant loaded (HTTP mode)');
