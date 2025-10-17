@@ -37,6 +37,23 @@ function sendMessage(message) {
 const responseQueue = {};
 let messageId = 0;
 
+// SSE clients
+const sseClients = [];
+
+// Broadcast event to all SSE clients
+function broadcastSSE(eventType, data) {
+  const message = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
+
+  sseClients.forEach((client, index) => {
+    try {
+      client.write(message);
+    } catch (e) {
+      // Remove dead clients
+      sseClients.splice(index, 1);
+    }
+  });
+}
+
 // Handle messages from extension
 process.stdin.on('readable', () => {
   try {
@@ -48,9 +65,15 @@ process.stdin.on('readable', () => {
         responseQueue[message.id](message);
         delete responseQueue[message.id];
       }
+    } else if (message.type === 'event') {
+      // Broadcast event to SSE clients
+      broadcastSSE(message.eventType || 'message', message.data);
+      console.error(`[Event] ${message.eventType}:`, message.data);
     } else if (message.type === 'log') {
       // Log from extension
       console.error('[Extension]', message.message);
+      // Also broadcast as SSE event
+      broadcastSSE('log', { message: message.message, timestamp: Date.now() });
     }
   } catch (e) {
     // End of stream or parse error
@@ -95,6 +118,34 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/health') {
     res.writeHead(200);
     res.end(JSON.stringify({ status: 'ok', service: 'edge-ai-assistant' }));
+    return;
+  }
+
+  // SSE endpoint for events
+  if (pathname === '/events' && req.method === 'GET') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*'
+    });
+
+    // Send initial connection message
+    res.write('event: connected\ndata: {"status":"connected","timestamp":' + Date.now() + '}\n\n');
+
+    // Add client to list
+    sseClients.push(res);
+    console.error(`[SSE] Client connected (total: ${sseClients.length})`);
+
+    // Remove client on disconnect
+    req.on('close', () => {
+      const index = sseClients.indexOf(res);
+      if (index !== -1) {
+        sseClients.splice(index, 1);
+        console.error(`[SSE] Client disconnected (total: ${sseClients.length})`);
+      }
+    });
+
     return;
   }
 

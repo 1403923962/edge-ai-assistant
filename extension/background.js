@@ -199,6 +199,50 @@ function sendToNativeHost(message) {
   }
 }
 
+// Send event to native host
+function sendEvent(eventType, data) {
+  sendToNativeHost({
+    type: 'event',
+    eventType,
+    data
+  });
+}
+
+// Listen for tab updates (page loads)
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete') {
+    sendEvent('page_load', {
+      tabId,
+      url: tab.url,
+      title: tab.title,
+      timestamp: Date.now()
+    });
+  }
+});
+
+// Listen for tab activation
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  const tab = await chrome.tabs.get(activeInfo.tabId);
+  sendEvent('tab_activated', {
+    tabId: activeInfo.tabId,
+    url: tab.url,
+    title: tab.title,
+    timestamp: Date.now()
+  });
+});
+
+// Listen for navigation (before page load)
+chrome.webNavigation.onCommitted.addListener((details) => {
+  if (details.frameId === 0) { // Main frame only
+    sendEvent('navigation', {
+      tabId: details.tabId,
+      url: details.url,
+      transitionType: details.transitionType,
+      timestamp: Date.now()
+    });
+  }
+});
+
 // Initialize
 connectNativeHost();
 

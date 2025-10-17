@@ -4,6 +4,10 @@
  * Exposes browser automation tools to AI via MCP protocol
  */
 
+const http = require('http');
+const https = require('https');
+const url = require('url');
+
 const NATIVE_HOST_URL = process.env.NATIVE_HOST_URL || 'http://localhost:9876';
 
 // MCP Protocol Implementation
@@ -167,6 +171,97 @@ async function handleToolCall(toolName, args) {
       throw new Error(`Unknown tool: ${toolName}`);
   }
 }
+
+// Connect to SSE event stream
+function connectSSE() {
+  const eventsUrl = new URL('/events', NATIVE_HOST_URL);
+  const protocol = eventsUrl.protocol === 'https:' ? https : http;
+
+  const req = protocol.get({
+    hostname: eventsUrl.hostname,
+    port: eventsUrl.port,
+    path: eventsUrl.pathname,
+    headers: {
+      'Accept': 'text/event-stream',
+      'Cache-Control': 'no-cache'
+    }
+  }, (res) => {
+    console.error('[SSE] Connected to event stream');
+
+    let buffer = '';
+
+    res.on('data', (chunk) => {
+      buffer += chunk.toString();
+
+      // Process complete events
+      const events = buffer.split('\n\n');
+      buffer = events.pop() || ''; // Keep incomplete event in buffer
+
+      events.forEach((eventData) => {
+        if (!eventData.trim()) return;
+
+        const lines = eventData.split('\n');
+        let eventType = 'message';
+        let data = '';
+
+        lines.forEach((line) => {
+          if (line.startsWith('event:')) {
+            eventType = line.substring(6).trim();
+          } else if (line.startsWith('data:')) {
+            data = line.substring(5).trim();
+          }
+        });
+
+        if (data) {
+          try {
+            const parsedData = JSON.parse(data);
+            handleSSEEvent(eventType, parsedData);
+          } catch (e) {
+            console.error('[SSE] Parse error:', e);
+          }
+        }
+      });
+    });
+
+    res.on('end', () => {
+      console.error('[SSE] Connection ended, reconnecting in 5s...');
+      setTimeout(connectSSE, 5000);
+    });
+  });
+
+  req.on('error', (error) => {
+    console.error('[SSE] Connection error:', error.message);
+    console.error('[SSE] Retrying in 5s...');
+    setTimeout(connectSSE, 5000);
+  });
+}
+
+// Handle SSE events
+function handleSSEEvent(eventType, data) {
+  switch (eventType) {
+    case 'connected':
+      console.error('[SSE] Connected:', data);
+      break;
+
+    case 'log':
+      console.error('[Browser]', data.message);
+      break;
+
+    case 'page_load':
+      console.error('[Browser] Page loaded:', data.url);
+      break;
+
+    case 'console':
+      console.error(`[Browser Console] [${data.level}]`, data.message);
+      break;
+
+    default:
+      console.error(`[SSE] ${eventType}:`, data);
+  }
+}
+
+// Start SSE connection
+connectSSE();
 
 // MCP Server Protocol
 process.stdin.on('readable', async () => {
