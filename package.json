@@ -4,9 +4,10 @@
   "description": "AI-powered Edge browser control via Native Messaging + MCP",
   "main": "native-host/host.js",
   "scripts": {
-    "test": "node native-host/host.js",
+    "start": "node native-host/host.js",
+    "test": "node test-http.js",
     "install-extension": "powershell -ExecutionPolicy Bypass -File install.ps1",
-    "start": "node native-host/host.js"
+    "generate-icons": "node generate-icons.js"
   },
   "keywords": ["edge", "automation", "ai", "mcp", "native-messaging"],
   "author": "",
