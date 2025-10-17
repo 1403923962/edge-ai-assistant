@@ -57,13 +57,19 @@ async function handleServerMessage(message) {
         result = await executeInTab(params.tabId, action, params);
         break;
       case 'navigate':
-        result = await navigateTab(params.url);
+        result = await navigateTab(params.url, params.tabId);
         break;
       case 'screenshot':
-        result = await takeScreenshot(params.tabId);
+        result = await takeScreenshot(params.tabId, params.selector);
         break;
       case 'getActiveTab':
         result = await getActiveTab();
+        break;
+      case 'listTabs':
+        result = await listAllTabs();
+        break;
+      case 'switchTab':
+        result = await switchToTab(params.tabId);
         break;
       default:
         throw new Error(`Unknown action: ${action}`);
@@ -149,24 +155,125 @@ function executeContentAction(action, params) {
   }
 }
 
-async function navigateTab(url) {
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  const tab = tabs[0];
-  await chrome.tabs.update(tab.id, { url });
-  return { success: true, url, tabId: tab.id };
+async function navigateTab(url, tabId) {
+  let targetTabId = tabId;
+
+  // If no tabId specified, use active tab
+  if (!targetTabId) {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    targetTabId = tabs[0]?.id;
+  }
+
+  if (!targetTabId) {
+    throw new Error('No tab found');
+  }
+
+  await chrome.tabs.update(targetTabId, { url });
+  return { success: true, url, tabId: targetTabId };
 }
 
-async function takeScreenshot(tabId) {
+async function takeScreenshot(tabId, selector) {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const targetTabId = tabId || tabs[0]?.id;
-  const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
-  return { screenshot: dataUrl };
+
+  // If no selector, return full screenshot
+  if (!selector) {
+    const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
+    return { screenshot: dataUrl };
+  }
+
+  // For element screenshot, use content script to crop
+  // First capture full page
+  const fullScreenshot = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
+
+  // Then crop in content script (has access to DOM APIs)
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId: targetTabId },
+    func: cropImageInPage,
+    args: [fullScreenshot, selector]
+  });
+
+  return { screenshot: result.result };
+}
+
+// This function runs in the page context where Image and Canvas are available
+function cropImageInPage(dataUrl, selector) {
+  return new Promise((resolve, reject) => {
+    const element = document.querySelector(selector);
+    if (!element) {
+      reject(new Error(`Element not found: ${selector}`));
+      return;
+    }
+
+    const rect = element.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(rect.width * dpr);
+      canvas.height = Math.floor(rect.height * dpr);
+      const ctx = canvas.getContext('2d');
+
+      ctx.drawImage(
+        img,
+        rect.x * dpr,
+        rect.y * dpr,
+        rect.width * dpr,
+        rect.height * dpr,
+        0,
+        0,
+        rect.width * dpr,
+        rect.height * dpr
+      );
+
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => reject(new Error('Failed to load screenshot'));
+    img.src = dataUrl;
+  });
 }
 
 async function getActiveTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const tab = tabs[0];
   return { id: tab.id, url: tab.url, title: tab.title };
+}
+
+async function listAllTabs() {
+  const tabs = await chrome.tabs.query({});
+  return {
+    tabs: tabs.map(tab => ({
+      id: tab.id,
+      url: tab.url,
+      title: tab.title,
+      active: tab.active,
+      windowId: tab.windowId,
+      index: tab.index
+    }))
+  };
+}
+
+async function switchToTab(tabId) {
+  if (!tabId) {
+    throw new Error('tabId is required');
+  }
+
+  // Get tab info
+  const tab = await chrome.tabs.get(tabId);
+
+  // Switch to the window containing this tab
+  await chrome.windows.update(tab.windowId, { focused: true });
+
+  // Activate the tab
+  await chrome.tabs.update(tabId, { active: true });
+
+  return {
+    success: true,
+    id: tab.id,
+    url: tab.url,
+    title: tab.title
+  };
 }
 
 // Listen for popup messages

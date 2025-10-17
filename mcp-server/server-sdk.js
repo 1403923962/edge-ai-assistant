@@ -45,7 +45,7 @@ async function callNativeHost(action, params = {}) {
 async function handleToolCall(toolName, args) {
   switch (toolName) {
     case 'edge_navigate':
-      return await callNativeHost('navigate', { url: args.url });
+      return await callNativeHost('navigate', { url: args.url, tabId: args.tabId });
 
     case 'edge_click':
       return await callNativeHost('click', { selector: args.selector });
@@ -58,16 +58,16 @@ async function handleToolCall(toolName, args) {
 
     case 'edge_get_text': {
       const result = await callNativeHost('getText', { selector: args.selector });
-      // Collapse large text data to save context window
-      if (result.text && result.text.length > 50000) {
+      // Collapse large text data to save context window (unless full=true)
+      if (!args.full && result.text && result.text.length > 50000) {
         const charCount = result.text.length;
         const preview = result.text.substring(0, 1000) + '...';
         return {
           success: true,
-          message: 'Text retrieved successfully',
+          message: 'Text retrieved successfully (collapsed)',
           charCount: charCount,
           preview: preview,
-          note: '[Full text data omitted to save context - text is too large. Consider using a selector to target specific elements]'
+          note: '[Full text data omitted to save context - text is too large. Use full=true parameter to get complete text, or use a selector to target specific elements]'
         };
       }
       return result;
@@ -75,34 +75,34 @@ async function handleToolCall(toolName, args) {
 
     case 'edge_get_html': {
       const result = await callNativeHost('getHTML', { selector: args.selector });
-      // Collapse large HTML data to save context window
-      if (result.html && result.html.length > 50000) {
+      // Collapse large HTML data to save context window (unless full=true)
+      if (!args.full && result.html && result.html.length > 50000) {
         const charCount = result.html.length;
         const preview = result.html.substring(0, 1000) + '...';
         return {
           success: true,
-          message: 'HTML retrieved successfully',
+          message: 'HTML retrieved successfully (collapsed)',
           charCount: charCount,
           preview: preview,
-          note: '[Full HTML data omitted to save context - HTML is too large. Consider using a selector to target specific elements]'
+          note: '[Full HTML data omitted to save context - HTML is too large. Use full=true parameter to get complete HTML, or use a selector to target specific elements]'
         };
       }
       return result;
     }
 
     case 'edge_screenshot': {
-      const result = await callNativeHost('screenshot');
-      // Collapse large base64 data to save context window
-      if (result.screenshot) {
+      const result = await callNativeHost('screenshot', { selector: args.selector });
+      // Collapse large base64 data to save context window (unless full=true)
+      if (!args.full && result.screenshot) {
         const base64Data = result.screenshot;
         const dataSize = Math.round(base64Data.length * 0.75 / 1024); // Approximate KB
         const preview = base64Data.substring(0, 50) + '...';
         return {
           success: true,
-          message: 'Screenshot captured successfully',
+          message: `Screenshot captured successfully${args.selector ? ' (focused on selector)' : ''} (collapsed)`,
           dataSize: `${dataSize}KB`,
           preview: preview,
-          note: '[Full base64 data omitted to save context - screenshot is available but collapsed]'
+          note: '[Full base64 data omitted to save context. Use full=true parameter to get the complete screenshot base64 data]'
         };
       }
       return result;
@@ -113,6 +113,15 @@ async function handleToolCall(toolName, args) {
 
     case 'edge_get_tab_info':
       return await callNativeHost('getActiveTab');
+
+    case 'edge_list_tabs':
+      return await callNativeHost('listTabs');
+
+    case 'edge_switch_tab':
+      if (!args.tabId) {
+        throw new Error('tabId is required');
+      }
+      return await callNativeHost('switchTab', { tabId: args.tabId });
 
     default:
       throw new Error(`Unknown tool: ${toolName}`);
@@ -201,13 +210,17 @@ function createMCPServer() {
       tools: [
         {
           name: 'edge_navigate',
-          description: 'Navigate to a URL in the active Edge tab',
+          description: 'Navigate to a URL in a browser tab. If tabId is not specified, navigates in the active tab',
           inputSchema: {
             type: 'object',
             properties: {
               url: {
                 type: 'string',
                 description: 'The URL to navigate to'
+              },
+              tabId: {
+                type: 'number',
+                description: 'Optional: The ID of the tab to navigate (get tab IDs using edge_list_tabs). If not specified, navigates in the active tab'
               }
             },
             required: ['url']
@@ -247,36 +260,53 @@ function createMCPServer() {
         },
         {
           name: 'edge_get_text',
-          description: 'Get text content from the page or a specific element',
+          description: 'Get text content from the page or a specific element. Large content (>50KB) is automatically collapsed unless full=true',
           inputSchema: {
             type: 'object',
             properties: {
               selector: {
                 type: 'string',
                 description: 'CSS selector (optional, gets all text if omitted)'
+              },
+              full: {
+                type: 'boolean',
+                description: 'Set to true to get full content even if large. Default: false (auto-collapse)'
               }
             }
           }
         },
         {
           name: 'edge_get_html',
-          description: 'Get HTML content from the page or a specific element',
+          description: 'Get HTML content from the page or a specific element. Large content (>50KB) is automatically collapsed unless full=true',
           inputSchema: {
             type: 'object',
             properties: {
               selector: {
                 type: 'string',
                 description: 'CSS selector (optional, gets full HTML if omitted)'
+              },
+              full: {
+                type: 'boolean',
+                description: 'Set to true to get full HTML even if large. Default: false (auto-collapse)'
               }
             }
           }
         },
         {
           name: 'edge_screenshot',
-          description: 'Take a screenshot of the current tab',
+          description: 'Take a screenshot of the current tab or a specific element. Screenshot data is automatically collapsed unless full=true',
           inputSchema: {
             type: 'object',
-            properties: {}
+            properties: {
+              selector: {
+                type: 'string',
+                description: 'CSS selector to focus on a specific element. If provided, only that element will be captured'
+              },
+              full: {
+                type: 'boolean',
+                description: 'Set to true to get full base64 screenshot data. Default: false (collapsed with size info and preview)'
+              }
+            }
           }
         },
         {
@@ -299,6 +329,28 @@ function createMCPServer() {
           inputSchema: {
             type: 'object',
             properties: {}
+          }
+        },
+        {
+          name: 'edge_list_tabs',
+          description: 'Get a list of all open browser tabs',
+          inputSchema: {
+            type: 'object',
+            properties: {}
+          }
+        },
+        {
+          name: 'edge_switch_tab',
+          description: 'Switch to a specific browser tab by ID',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              tabId: {
+                type: 'number',
+                description: 'The ID of the tab to switch to (get tab IDs using edge_list_tabs)'
+              }
+            },
+            required: ['tabId']
           }
         }
       ]
