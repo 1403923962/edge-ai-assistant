@@ -6,15 +6,20 @@ AI-powered Edge browser control using Native Messaging + MCP
 
 ```
 AI (Claude)
-  ↓ MCP Protocol
+  ↓ MCP Protocol (stdio)
 MCP Server
-  ↓ HTTP/JSON
+  ↓ HTTP POST (commands) + SSE (events)
 Native Messaging Host (Node.js)
-  ↓ stdin/stdout
+  ↓ stdin/stdout (Native Messaging)
 Edge Extension
-  ↓ DOM API
+  ↓ DOM API + Event Broadcasting
 Browser Page
 ```
+
+### Communication Flow
+- **Commands**: MCP → HTTP POST → Native Host → Extension → Browser
+- **Events**: Browser → Extension → Native Host → SSE → MCP
+- **Real-time**: Extension broadcasts page loads, navigation, logs via SSE
 
 ## Components
 
@@ -30,9 +35,18 @@ Browser Page
 
 ## Features
 
+### Browser Control
 - Click elements
 - Fill forms
-- Get page content
+- Get page content (text/HTML)
 - Take screenshots
 - Navigate pages
 - Execute JavaScript
+- Get tab information
+
+### Real-time Events (SSE)
+- Page load notifications
+- Tab activation events
+- Navigation tracking
+- Browser console logs
+- Extension logs
