@@ -1,0 +1,9 @@
+{
+  "name": "com.edge.ai.assistant",
+  "description": "Edge AI Assistant Native Messaging Host",
+  "path": "host.bat",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://EXTENSION_ID_PLACEHOLDER/"
+  ]
+}
