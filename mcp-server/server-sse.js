@@ -319,7 +319,7 @@ const server = http.createServer(async (req, res) => {
               jsonrpc: '2.0',
               id: request.id,
               result: {
-                protocolVersion: '0.1.0',
+                protocolVersion: request.params.protocolVersion || '2024-11-05',
                 serverInfo: {
                   name: 'edge-ai-assistant',
                   version: '1.0.0'
@@ -330,6 +330,13 @@ const server = http.createServer(async (req, res) => {
               }
             };
             break;
+
+          case 'notifications/initialized':
+            // Client sends this after receiving initialize response
+            // No response needed for notifications
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ jsonrpc: '2.0', result: {} }));
+            return;
 
           case 'tools/list':
             response = {
