@@ -56,11 +56,39 @@ async function handleToolCall(toolName, args) {
         value: args.value
       });
 
-    case 'edge_get_text':
-      return await callNativeHost('getText', { selector: args.selector });
+    case 'edge_get_text': {
+      const result = await callNativeHost('getText', { selector: args.selector });
+      // Collapse large text data to save context window
+      if (result.text && result.text.length > 50000) {
+        const charCount = result.text.length;
+        const preview = result.text.substring(0, 1000) + '...';
+        return {
+          success: true,
+          message: 'Text retrieved successfully',
+          charCount: charCount,
+          preview: preview,
+          note: '[Full text data omitted to save context - text is too large. Consider using a selector to target specific elements]'
+        };
+      }
+      return result;
+    }
 
-    case 'edge_get_html':
-      return await callNativeHost('getHTML', { selector: args.selector });
+    case 'edge_get_html': {
+      const result = await callNativeHost('getHTML', { selector: args.selector });
+      // Collapse large HTML data to save context window
+      if (result.html && result.html.length > 50000) {
+        const charCount = result.html.length;
+        const preview = result.html.substring(0, 1000) + '...';
+        return {
+          success: true,
+          message: 'HTML retrieved successfully',
+          charCount: charCount,
+          preview: preview,
+          note: '[Full HTML data omitted to save context - HTML is too large. Consider using a selector to target specific elements]'
+        };
+      }
+      return result;
+    }
 
     case 'edge_screenshot': {
       const result = await callNativeHost('screenshot');
