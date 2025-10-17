@@ -349,7 +349,8 @@ const httpServer = http.createServer(async (req, res) => {
   res.end('Not Found');
 });
 
-httpServer.listen(MCP_PORT, () => {
+// Listen on localhost only (matching memory-portal)
+httpServer.listen(MCP_PORT, 'localhost', () => {
   console.error(`Edge AI Assistant MCP Server (SDK) listening on http://localhost:${MCP_PORT}`);
   console.error(`SSE endpoint: http://localhost:${MCP_PORT}/sse`);
 });
