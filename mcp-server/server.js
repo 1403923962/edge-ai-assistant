@@ -8,7 +8,7 @@ const http = require('http');
 const https = require('https');
 const url = require('url');
 
-const NATIVE_HOST_URL = process.env.NATIVE_HOST_URL || 'http://localhost:9876';
+const NATIVE_HOST_URL = process.env.NATIVE_HOST_URL || 'http://localhost:9999';
 
 // MCP Protocol Implementation
 async function callNativeHost(action, params = {}) {
