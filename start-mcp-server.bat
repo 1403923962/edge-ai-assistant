@@ -10,4 +10,4 @@ set MCP_PORT=3200
 
 REM Start MCP Server
 cd /d "%~dp0"
-node mcp-server\server-sse.js
+node mcp-server\server-sdk.js

@@ -26,4 +26,4 @@ export MCP_PORT=3200
 
 # Start MCP Server
 cd "$(dirname "$0")"
-node mcp-server/server-sse.js
+node mcp-server/server-sdk.js
