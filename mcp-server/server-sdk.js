@@ -62,8 +62,23 @@ async function handleToolCall(toolName, args) {
     case 'edge_get_html':
       return await callNativeHost('getHTML', { selector: args.selector });
 
-    case 'edge_screenshot':
-      return await callNativeHost('screenshot');
+    case 'edge_screenshot': {
+      const result = await callNativeHost('screenshot');
+      // Collapse large base64 data to save context window
+      if (result.screenshot) {
+        const base64Data = result.screenshot;
+        const dataSize = Math.round(base64Data.length * 0.75 / 1024); // Approximate KB
+        const preview = base64Data.substring(0, 50) + '...';
+        return {
+          success: true,
+          message: 'Screenshot captured successfully',
+          dataSize: `${dataSize}KB`,
+          preview: preview,
+          note: '[Full base64 data omitted to save context - screenshot is available but collapsed]'
+        };
+      }
+      return result;
+    }
 
     case 'edge_evaluate':
       return await callNativeHost('evaluate', { code: args.code });

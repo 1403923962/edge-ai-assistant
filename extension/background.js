@@ -1,12 +1,13 @@
 /**
- * Background script - Communicates with HTTP server (no Native Messaging)
+ * Background script (Refactored) - HTTP mode
  */
 
+// Import would require build system, so inline for now
 const HTTP_SERVER_URL = 'http://localhost:9999';
 let eventSource = null;
 let isConnected = false;
 
-// Connect to HTTP server via SSE
+// Connection management
 function connectToServer() {
   console.log('Connecting to HTTP server:', HTTP_SERVER_URL);
 
@@ -31,12 +32,7 @@ function connectToServer() {
     eventSource.onerror = (error) => {
       console.error('SSE error:', error);
       isConnected = false;
-
-      if (eventSource) {
-        eventSource.close();
-      }
-
-      // Retry connection after 5 seconds
+      if (eventSource) eventSource.close();
       setTimeout(connectToServer, 5000);
     };
   } catch (error) {
@@ -45,7 +41,7 @@ function connectToServer() {
   }
 }
 
-// Handle messages from HTTP server
+// Message handler
 async function handleServerMessage(message) {
   const { id, action, params } = message;
 
@@ -54,49 +50,32 @@ async function handleServerMessage(message) {
 
     switch (action) {
       case 'click':
-        result = await executeInTab(params.tabId, 'click', params);
-        break;
-
       case 'fill':
-        result = await executeInTab(params.tabId, 'fill', params);
-        break;
-
       case 'getText':
-        result = await executeInTab(params.tabId, 'getText', params);
-        break;
-
       case 'getHTML':
-        result = await executeInTab(params.tabId, 'getHTML', params);
+      case 'evaluate':
+        result = await executeInTab(params.tabId, action, params);
         break;
-
       case 'navigate':
         result = await navigateTab(params.url);
         break;
-
       case 'screenshot':
         result = await takeScreenshot(params.tabId);
         break;
-
-      case 'evaluate':
-        result = await executeInTab(params.tabId, 'evaluate', params);
-        break;
-
       case 'getActiveTab':
         result = await getActiveTab();
         break;
-
       default:
         throw new Error(`Unknown action: ${action}`);
     }
 
-    // Send response back via HTTP POST
     await sendResponse(id, { success: true, result });
   } catch (error) {
     await sendResponse(id, { success: false, error: error.message });
   }
 }
 
-// Send response back to server
+// Send response
 async function sendResponse(id, data) {
   try {
     const response = await fetch(`${HTTP_SERVER_URL}/response`, {
@@ -113,14 +92,12 @@ async function sendResponse(id, data) {
   }
 }
 
-// Execute action in content script
+// Tab actions
 async function executeInTab(tabId, action, params) {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const targetTabId = tabId || tabs[0]?.id;
 
-  if (!targetTabId) {
-    throw new Error('No active tab found');
-  }
+  if (!targetTabId) throw new Error('No active tab found');
 
   const [result] = await chrome.scripting.executeScript({
     target: { tabId: targetTabId },
@@ -131,7 +108,6 @@ async function executeInTab(tabId, action, params) {
   return result.result;
 }
 
-// Function injected into page
 function executeContentAction(action, params) {
   switch (action) {
     case 'click':
@@ -173,39 +149,27 @@ function executeContentAction(action, params) {
   }
 }
 
-// Navigate to URL
 async function navigateTab(url) {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const tab = tabs[0];
-
   await chrome.tabs.update(tab.id, { url });
-
   return { success: true, url, tabId: tab.id };
 }
 
-// Take screenshot
 async function takeScreenshot(tabId) {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const targetTabId = tabId || tabs[0]?.id;
-
   const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
-
   return { screenshot: dataUrl };
 }
 
-// Get active tab info
 async function getActiveTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const tab = tabs[0];
-
-  return {
-    id: tab.id,
-    url: tab.url,
-    title: tab.title
-  };
+  return { id: tab.id, url: tab.url, title: tab.title };
 }
 
-// Listen for messages from popup
+// Listen for popup messages
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'checkStatus') {
     sendResponse({ connected: isConnected });
@@ -215,6 +179,4 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Initialize
 connectToServer();
-
-// Log when extension loaded
 console.log('Edge AI Assistant loaded (HTTP mode)');
