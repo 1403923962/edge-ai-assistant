@@ -333,6 +333,37 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
+  // POST messages endpoint (required by SSE transport)
+  if (pathname === '/messages' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const sessionId = parsedUrl.query.sessionId;
+        if (!sessionId) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing sessionId' }));
+          return;
+        }
+
+        const transport = transports.get(sessionId);
+        if (!transport) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Session not found' }));
+          return;
+        }
+
+        const message = JSON.parse(body);
+        await transport.handlePostMessage(req, res, message);
+      } catch (error) {
+        console.error('[MCP] Error handling message:', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Internal server error' }));
+      }
+    });
+    return;
+  }
+
   // Health check
   if (pathname === '/health' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
