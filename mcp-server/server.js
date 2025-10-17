@@ -263,12 +263,22 @@ function handleSSEEvent(eventType, data) {
 // Start SSE connection
 connectSSE();
 
-// MCP Server Protocol
-process.stdin.on('readable', async () => {
-  let chunk;
-  while ((chunk = process.stdin.read()) !== null) {
+// MCP Server Protocol with proper buffering
+let inputBuffer = '';
+
+process.stdin.on('data', async (chunk) => {
+  inputBuffer += chunk.toString();
+
+  // Process complete lines (messages end with newline)
+  let newlineIndex;
+  while ((newlineIndex = inputBuffer.indexOf('\n')) !== -1) {
+    const line = inputBuffer.slice(0, newlineIndex).trim();
+    inputBuffer = inputBuffer.slice(newlineIndex + 1);
+
+    if (!line) continue;
+
     try {
-      const request = JSON.parse(chunk.toString());
+      const request = JSON.parse(line);
 
       let response;
 
@@ -330,7 +340,8 @@ process.stdin.on('readable', async () => {
 
       process.stdout.write(JSON.stringify(response) + '\n');
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error processing request:', error.message);
+      console.error('Line:', line);
     }
   }
 });
