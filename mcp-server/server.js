@@ -4,7 +4,7 @@
  * Exposes browser automation tools to AI via MCP protocol
  */
 
-const NATIVE_HOST_URL = 'http://localhost:8765';
+const NATIVE_HOST_URL = process.env.NATIVE_HOST_URL || 'http://localhost:9876';
 
 // MCP Protocol Implementation
 async function callNativeHost(action, params = {}) {

@@ -120,7 +120,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-const PORT = 8765;
+const PORT = process.env.PORT || 9876;
 server.listen(PORT, () => {
   console.error(`Native host listening on http://localhost:${PORT}`);
   console.error('Waiting for extension connection...');
