@@ -40,15 +40,18 @@ async function pollForCommands() {
       headers: { 'Content-Type': 'application/json' }
     });
 
-    if (!response.ok) {
-      // No command available or server error
-      if (response.status === 204) {
-        // 204 No Content = no pending commands (normal)
-        if (!isConnected) {
-          isConnected = true;
-          console.log('[Polling] Connected to server');
-        }
+    // Check 204 No Content first (no pending commands)
+    if (response.status === 204) {
+      if (!isConnected) {
+        isConnected = true;
+        console.log('[Polling] Connected to server');
       }
+      return;
+    }
+
+    if (!response.ok) {
+      // Server error
+      console.error('[Polling] Server error:', response.status, response.statusText);
       return;
     }
 
@@ -128,6 +131,24 @@ async function executeInTab(tabId, action, params) {
     throw new Error('No active tab found. Please ensure Edge browser window is open and in the foreground.');
   }
 
+  // Special handling for evaluate - execute in MAIN world to bypass CSP
+  if (action === 'evaluate') {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: targetTabId },
+      world: 'MAIN',
+      func: (code) => {
+        try {
+          const evalResult = eval(code);
+          return { result: evalResult };
+        } catch (e) {
+          throw new Error(`Evaluation error: ${e.message}`);
+        }
+      },
+      args: [params.code]
+    });
+    return result.result;
+  }
+
   const [result] = await chrome.scripting.executeScript({
     target: { tabId: targetTabId },
     func: executeContentAction,
@@ -170,18 +191,9 @@ function executeContentAction(action, params) {
       return { html: document.documentElement.outerHTML };
 
     case 'evaluate':
-      try {
-        let evalResult = eval(params.code);
-        // Convert to JSON-serializable format
-        if (typeof evalResult === 'function') {
-          evalResult = evalResult.toString();
-        } else if (evalResult === undefined) {
-          evalResult = null;
-        }
-        return { result: evalResult };
-      } catch (e) {
-        throw new Error(`Evaluation error: ${e.message}`);
-      }
+      // Note: This case is now handled in executeInTab using MAIN world
+      // to bypass CSP restrictions. This fallback should not be reached.
+      throw new Error('Evaluate should be handled in MAIN world');
 
     default:
       throw new Error(`Unknown content action: ${action}`);
@@ -233,4 +245,4 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Initialize polling
 startPolling();
-console.log('Edge AI Assistant loaded (Polling mode)');
+console.log('Edge AI Assistant loaded (Polling mode v1.0.1)');
