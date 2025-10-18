@@ -56,6 +56,30 @@ async function handleToolCall(toolName, args) {
         value: args.value
       });
 
+    case 'edge_press_key':
+      return await callNativeHost('pressKey', {
+        key: args.key,
+        selector: args.selector
+      });
+
+    case 'edge_select':
+      return await callNativeHost('select', {
+        selector: args.selector,
+        value: args.value
+      });
+
+    case 'edge_wait_for_element':
+      return await callNativeHost('waitForElement', {
+        selector: args.selector,
+        timeout: args.timeout,
+        interval: args.interval
+      });
+
+    case 'edge_wait_for_timeout':
+      return await callNativeHost('waitForTimeout', {
+        timeout: args.timeout
+      });
+
     case 'edge_get_text': {
       const result = await callNativeHost('getText', { selector: args.selector });
       // Collapse large text data to save context window
@@ -299,6 +323,78 @@ function createMCPServer() {
           inputSchema: {
             type: 'object',
             properties: {}
+          }
+        },
+        {
+          name: 'edge_press_key',
+          description: 'Press a keyboard key (Enter, Tab, Escape, ArrowDown, etc.) on the active element or a specific element',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              key: {
+                type: 'string',
+                description: 'Key to press (e.g., "Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "a", "A", "1", etc.)'
+              },
+              selector: {
+                type: 'string',
+                description: 'Optional CSS selector for element to focus before pressing key. If omitted, uses currently focused element'
+              }
+            },
+            required: ['key']
+          }
+        },
+        {
+          name: 'edge_select',
+          description: 'Select an option from a dropdown <select> element',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              selector: {
+                type: 'string',
+                description: 'CSS selector for the SELECT element'
+              },
+              value: {
+                type: 'string',
+                description: 'Value of the option to select (the value attribute, not the display text)'
+              }
+            },
+            required: ['selector', 'value']
+          }
+        },
+        {
+          name: 'edge_wait_for_element',
+          description: 'Wait for an element to appear on the page (useful for dynamic content)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              selector: {
+                type: 'string',
+                description: 'CSS selector for the element to wait for'
+              },
+              timeout: {
+                type: 'number',
+                description: 'Maximum time to wait in milliseconds (default: 30000)'
+              },
+              interval: {
+                type: 'number',
+                description: 'How often to check for the element in milliseconds (default: 500)'
+              }
+            },
+            required: ['selector']
+          }
+        },
+        {
+          name: 'edge_wait_for_timeout',
+          description: 'Wait for a specified amount of time (useful for pacing automation or waiting for animations)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              timeout: {
+                type: 'number',
+                description: 'Time to wait in milliseconds'
+              }
+            },
+            required: ['timeout']
           }
         }
       ]

@@ -84,6 +84,8 @@ async function handleServerMessage(message) {
       case 'getText':
       case 'getHTML':
       case 'evaluate':
+      case 'pressKey':
+      case 'select':
         result = await executeInTab(params.tabId, action, params);
         break;
       case 'navigate':
@@ -94,6 +96,12 @@ async function handleServerMessage(message) {
         break;
       case 'getActiveTab':
         result = await getActiveTab();
+        break;
+      case 'waitForElement':
+        result = await waitForElement(params);
+        break;
+      case 'waitForTimeout':
+        result = await waitForTimeout(params.timeout);
         break;
       default:
         throw new Error(`Unknown action: ${action}`);
@@ -174,6 +182,53 @@ function executeContentAction(action, params) {
       fillElement.dispatchEvent(new Event('change', { bubbles: true }));
       return { success: true };
 
+    case 'pressKey':
+      const target = params.selector ? document.querySelector(params.selector) : document.activeElement || document.body;
+      if (params.selector && !target) throw new Error(`Element not found: ${params.selector}`);
+
+      // Focus element if selector provided
+      if (params.selector && target !== document.activeElement) {
+        target.focus();
+      }
+
+      // Dispatch keyboard events
+      const keyboardEvent = new KeyboardEvent('keydown', {
+        key: params.key,
+        code: params.key,
+        bubbles: true,
+        cancelable: true
+      });
+      target.dispatchEvent(keyboardEvent);
+
+      const keypressEvent = new KeyboardEvent('keypress', {
+        key: params.key,
+        code: params.key,
+        bubbles: true,
+        cancelable: true
+      });
+      target.dispatchEvent(keypressEvent);
+
+      const keyupEvent = new KeyboardEvent('keyup', {
+        key: params.key,
+        code: params.key,
+        bubbles: true,
+        cancelable: true
+      });
+      target.dispatchEvent(keyupEvent);
+
+      return { success: true, key: params.key };
+
+    case 'select':
+      const selectElement = document.querySelector(params.selector);
+      if (!selectElement) throw new Error(`Element not found: ${params.selector}`);
+      if (selectElement.tagName !== 'SELECT') throw new Error(`Element is not a SELECT element: ${params.selector}`);
+
+      selectElement.value = params.value;
+      selectElement.dispatchEvent(new Event('change', { bubbles: true }));
+      selectElement.dispatchEvent(new Event('input', { bubbles: true }));
+
+      return { success: true, value: params.value };
+
     case 'getText':
       if (params.selector) {
         const textElement = document.querySelector(params.selector);
@@ -235,6 +290,57 @@ async function getActiveTab() {
   return { id: tab.id, url: tab.url, title: tab.title };
 }
 
+async function waitForElement(params) {
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const targetTabId = params.tabId || tabs[0]?.id;
+
+  if (!targetTabId) {
+    throw new Error('No active tab found. Please ensure Edge browser window is open and in the foreground.');
+  }
+
+  const timeout = params.timeout || 30000; // Default 30 seconds
+  const interval = params.interval || 500; // Check every 500ms
+
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId: targetTabId },
+    func: (selector, timeout, interval) => {
+      return new Promise((resolve, reject) => {
+        const startTime = Date.now();
+
+        const checkElement = () => {
+          const element = document.querySelector(selector);
+
+          if (element) {
+            resolve({
+              success: true,
+              found: true,
+              selector: selector,
+              waitTime: Date.now() - startTime
+            });
+          } else if (Date.now() - startTime >= timeout) {
+            reject(new Error(`Element not found after ${timeout}ms: ${selector}`));
+          } else {
+            setTimeout(checkElement, interval);
+          }
+        };
+
+        checkElement();
+      });
+    },
+    args: [params.selector, timeout, interval]
+  });
+
+  return result.result;
+}
+
+async function waitForTimeout(timeout) {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve({ success: true, waited: timeout });
+    }, timeout);
+  });
+}
+
 // Listen for popup messages
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'checkStatus') {
@@ -245,4 +351,4 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Initialize polling
 startPolling();
-console.log('Edge AI Assistant loaded (Polling mode v1.0.1)');
+console.log('Edge AI Assistant loaded (Polling mode v1.1.0 - with press_key, select, wait)');
