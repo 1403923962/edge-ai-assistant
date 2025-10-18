@@ -1,6 +1,8 @@
 # Edge AI Assistant
 
-AI-powered Edge browser control using Native Messaging + MCP
+AI-powered RPA execution engine for Edge browser using MCP protocol
+
+⚠️ **Commercial Use Restricted** - See [License](#license) below
 
 ## Architecture
 
@@ -50,3 +52,31 @@ Browser Page
 - Navigation tracking
 - Browser console logs
 - Extension logs
+
+## License
+
+This project is licensed under the **Business Source License 1.1**.
+
+### What this means:
+
+✅ **Allowed:**
+- Personal, non-commercial use
+- Internal business use (not as a service to others)
+- Research and education
+- Contributing back to the project
+
+❌ **Not Allowed:**
+- Commercial SaaS/hosted services
+- Offering as a managed service
+- Selling or sublicensing
+- Building competing products
+
+🔓 **Future:** This license will automatically convert to MIT License on **2029-01-18** (4 years).
+
+📧 **Commercial Licensing:** For commercial use cases, please contact us for a commercial license.
+
+See [LICENSE.md](LICENSE.md) for full details.
+
+---
+
+**Copyright © 2025 Edge AI Assistant**
