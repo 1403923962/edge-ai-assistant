@@ -97,7 +97,9 @@ async function executeInTab(tabId, action, params) {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const targetTabId = tabId || tabs[0]?.id;
 
-  if (!targetTabId) throw new Error('No active tab found');
+  if (!targetTabId) {
+    throw new Error('No active tab found. Please ensure Edge browser window is open and in the foreground.');
+  }
 
   const [result] = await chrome.scripting.executeScript({
     target: { tabId: targetTabId },
@@ -152,6 +154,11 @@ function executeContentAction(action, params) {
 async function navigateTab(url) {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const tab = tabs[0];
+
+  if (!tab) {
+    throw new Error('No active tab found. Please ensure Edge browser window is open and in the foreground.');
+  }
+
   await chrome.tabs.update(tab.id, { url });
   return { success: true, url, tabId: tab.id };
 }
@@ -159,6 +166,11 @@ async function navigateTab(url) {
 async function takeScreenshot(tabId) {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const targetTabId = tabId || tabs[0]?.id;
+
+  if (!targetTabId) {
+    throw new Error('No active tab found. Please ensure Edge browser window is open and in the foreground.');
+  }
+
   const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
   return { screenshot: dataUrl };
 }
@@ -166,6 +178,11 @@ async function takeScreenshot(tabId) {
 async function getActiveTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const tab = tabs[0];
+
+  if (!tab) {
+    throw new Error('No active tab found. Please ensure Edge browser window is open and in the foreground.');
+  }
+
   return { id: tab.id, url: tab.url, title: tab.title };
 }
 
