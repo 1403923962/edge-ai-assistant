@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Edge AI Assistant",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "AI-powered browser automation via Native Messaging",
   "permissions": [
     "nativeMessaging",
     "activeTab",
     "tabs",
     "scripting",
-    "webNavigation"
+    "webNavigation",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"

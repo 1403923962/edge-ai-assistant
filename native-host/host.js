@@ -42,8 +42,25 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({
       status: 'ok',
       service: 'edge-ai-assistant',
-      clients: sseManager.getClientCount()
+      clients: sseManager.getClientCount(),
+      ...commandHandler.getQueueStatus()
     }));
+    return;
+  }
+
+  // Poll endpoint for Extension (polling mode)
+  if (pathname === '/poll' && req.method === 'GET') {
+    const command = commandHandler.pollCommand();
+
+    if (command) {
+      // Return pending command
+      res.writeHead(200);
+      res.end(JSON.stringify(command));
+    } else {
+      // No pending commands - return 204 No Content
+      res.writeHead(204);
+      res.end();
+    }
     return;
   }
 

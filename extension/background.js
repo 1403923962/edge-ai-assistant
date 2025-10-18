@@ -1,43 +1,70 @@
 /**
- * Background script (Refactored) - HTTP mode
+ * Background script - HTTP Polling mode (MV3 compatible)
+ * Uses short polling instead of SSE to work with Service Worker lifecycle
  */
 
-// Import would require build system, so inline for now
 const HTTP_SERVER_URL = 'http://localhost:9999';
-let eventSource = null;
 let isConnected = false;
+const POLLING_ALARM = 'command-polling';
+const POLL_INTERVAL_SECONDS = 2;
 
-// Connection management
-function connectToServer() {
-  console.log('Connecting to HTTP server:', HTTP_SERVER_URL);
+// Start polling when extension loads
+chrome.runtime.onStartup.addListener(startPolling);
+chrome.runtime.onInstalled.addListener(startPolling);
 
+// Start polling for commands
+function startPolling() {
+  console.log('[Polling] Starting command polling');
+
+  // Create alarm for periodic polling (every 2 seconds)
+  chrome.alarms.create(POLLING_ALARM, {
+    periodInMinutes: POLL_INTERVAL_SECONDS / 60
+  });
+
+  // Poll immediately once
+  pollForCommands();
+}
+
+// Handle alarm events
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === POLLING_ALARM) {
+    pollForCommands();
+  }
+});
+
+// Poll for pending commands from Native Host
+async function pollForCommands() {
   try {
-    eventSource = new EventSource(`${HTTP_SERVER_URL}/events`);
+    const response = await fetch(`${HTTP_SERVER_URL}/poll`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
 
-    eventSource.onopen = () => {
-      isConnected = true;
-      console.log('Connected to HTTP server');
-    };
-
-    eventSource.onmessage = (event) => {
-      console.log('Received message:', event.data);
-      try {
-        const message = JSON.parse(event.data);
-        handleServerMessage(message);
-      } catch (e) {
-        console.error('Failed to parse message:', e);
+    if (!response.ok) {
+      // No command available or server error
+      if (response.status === 204) {
+        // 204 No Content = no pending commands (normal)
+        if (!isConnected) {
+          isConnected = true;
+          console.log('[Polling] Connected to server');
+        }
       }
-    };
+      return;
+    }
 
-    eventSource.onerror = (error) => {
-      console.error('SSE error:', error);
-      isConnected = false;
-      if (eventSource) eventSource.close();
-      setTimeout(connectToServer, 5000);
-    };
+    const message = await response.json();
+
+    if (message && message.action) {
+      console.log('[Polling] Received command:', message.action);
+      await handleServerMessage(message);
+    }
+
+    isConnected = true;
   } catch (error) {
-    console.error('Failed to connect:', error);
-    setTimeout(connectToServer, 5000);
+    if (isConnected) {
+      console.error('[Polling] Server unreachable:', error.message);
+      isConnected = false;
+    }
   }
 }
 
@@ -75,7 +102,7 @@ async function handleServerMessage(message) {
   }
 }
 
-// Send response
+// Send response back to Native Host
 async function sendResponse(id, data) {
   try {
     const response = await fetch(`${HTTP_SERVER_URL}/response`, {
@@ -85,10 +112,10 @@ async function sendResponse(id, data) {
     });
 
     if (!response.ok) {
-      console.error('Failed to send response:', response.statusText);
+      console.error('[Response] Failed to send:', response.statusText);
     }
   } catch (error) {
-    console.error('Failed to send response:', error);
+    console.error('[Response] Error:', error);
   }
 }
 
@@ -143,8 +170,18 @@ function executeContentAction(action, params) {
       return { html: document.documentElement.outerHTML };
 
     case 'evaluate':
-      const evalResult = eval(params.code);
-      return { result: evalResult };
+      try {
+        let evalResult = eval(params.code);
+        // Convert to JSON-serializable format
+        if (typeof evalResult === 'function') {
+          evalResult = evalResult.toString();
+        } else if (evalResult === undefined) {
+          evalResult = null;
+        }
+        return { result: evalResult };
+      } catch (e) {
+        throw new Error(`Evaluation error: ${e.message}`);
+      }
 
     default:
       throw new Error(`Unknown content action: ${action}`);
@@ -194,6 +231,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-// Initialize
-connectToServer();
-console.log('Edge AI Assistant loaded (HTTP mode)');
+// Initialize polling
+startPolling();
+console.log('Edge AI Assistant loaded (Polling mode)');
