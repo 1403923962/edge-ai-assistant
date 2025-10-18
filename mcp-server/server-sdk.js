@@ -80,6 +80,24 @@ async function handleToolCall(toolName, args) {
         timeout: args.timeout
       });
 
+    case 'edge_list_tabs':
+      return await callNativeHost('listTabs');
+
+    case 'edge_switch_tab':
+      return await callNativeHost('switchTab', {
+        tabId: args.tabId
+      });
+
+    case 'edge_new_tab':
+      return await callNativeHost('newTab', {
+        url: args.url
+      });
+
+    case 'edge_close_tab':
+      return await callNativeHost('closeTab', {
+        tabId: args.tabId
+      });
+
     case 'edge_get_text': {
       const result = await callNativeHost('getText', { selector: args.selector });
       // Collapse large text data to save context window
@@ -395,6 +413,54 @@ function createMCPServer() {
               }
             },
             required: ['timeout']
+          }
+        },
+        {
+          name: 'edge_list_tabs',
+          description: 'List all tabs in the current browser window with their IDs, URLs, and titles',
+          inputSchema: {
+            type: 'object',
+            properties: {}
+          }
+        },
+        {
+          name: 'edge_switch_tab',
+          description: 'Switch to (activate) a specific tab by its ID',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              tabId: {
+                type: 'number',
+                description: 'ID of the tab to switch to (get this from edge_list_tabs)'
+              }
+            },
+            required: ['tabId']
+          }
+        },
+        {
+          name: 'edge_new_tab',
+          description: 'Create a new browser tab and optionally navigate to a URL',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              url: {
+                type: 'string',
+                description: 'URL to navigate to in the new tab (optional, defaults to blank page)'
+              }
+            }
+          }
+        },
+        {
+          name: 'edge_close_tab',
+          description: 'Close a specific tab by its ID, or close the current active tab if no ID is provided',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              tabId: {
+                type: 'number',
+                description: 'ID of the tab to close (optional, closes active tab if omitted)'
+              }
+            }
           }
         }
       ]

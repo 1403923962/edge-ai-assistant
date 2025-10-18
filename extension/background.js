@@ -103,6 +103,18 @@ async function handleServerMessage(message) {
       case 'waitForTimeout':
         result = await waitForTimeout(params.timeout);
         break;
+      case 'listTabs':
+        result = await listTabs();
+        break;
+      case 'switchTab':
+        result = await switchTab(params.tabId);
+        break;
+      case 'newTab':
+        result = await newTab(params.url);
+        break;
+      case 'closeTab':
+        result = await closeTab(params.tabId);
+        break;
       default:
         throw new Error(`Unknown action: ${action}`);
     }
@@ -341,6 +353,70 @@ async function waitForTimeout(timeout) {
   });
 }
 
+async function listTabs() {
+  const tabs = await chrome.tabs.query({ currentWindow: true });
+
+  return {
+    success: true,
+    count: tabs.length,
+    tabs: tabs.map(tab => ({
+      id: tab.id,
+      url: tab.url,
+      title: tab.title,
+      active: tab.active,
+      index: tab.index
+    }))
+  };
+}
+
+async function switchTab(tabId) {
+  // Activate the tab
+  await chrome.tabs.update(tabId, { active: true });
+
+  // Get the window ID and focus the window
+  const tab = await chrome.tabs.get(tabId);
+  await chrome.windows.update(tab.windowId, { focused: true });
+
+  return {
+    success: true,
+    tabId: tabId,
+    url: tab.url,
+    title: tab.title
+  };
+}
+
+async function newTab(url) {
+  const tab = await chrome.tabs.create({
+    url: url || 'about:blank',
+    active: true
+  });
+
+  return {
+    success: true,
+    tabId: tab.id,
+    url: tab.url || url
+  };
+}
+
+async function closeTab(tabId) {
+  // If no tabId specified, close the current active tab
+  if (!tabId) {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    tabId = tabs[0]?.id;
+  }
+
+  if (!tabId) {
+    throw new Error('No tab to close');
+  }
+
+  await chrome.tabs.remove(tabId);
+
+  return {
+    success: true,
+    closedTabId: tabId
+  };
+}
+
 // Listen for popup messages
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'checkStatus') {
@@ -351,4 +427,4 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Initialize polling
 startPolling();
-console.log('Edge AI Assistant loaded (Polling mode v1.1.0 - with press_key, select, wait)');
+console.log('Edge AI Assistant loaded (Polling mode v1.2.0 - with tabs management)');
